@@ -81,31 +81,34 @@ def render_tab1():
                 search_term_strip = search_term.strip()
                 if search_term_strip:
                     with st.spinner("🔄 Google Drive에서 JSON 검색 중..."):
+                        # gdrive_utils.search_files 대신 google_drive_helper.find_files_by_name_contains 사용
                         all_gdrive_results = gdrive.find_files_by_name_contains(
                             search_term_strip,
-                            mime_types="application/json",
+                            mime_types="application/json", # mime_types 인자 사용 (기존 코드와 일치)
                             folder_id=gdrive_folder_id_from_secrets # 폴더 ID 전달
                         )
                     processed_results = []
                     if all_gdrive_results:
+                        # --- 여기가 4자리 숫자 검색 처리 로직 ---
                         if len(search_term_strip) == 4 and search_term_strip.isdigit():
                             for r_item in all_gdrive_results:
                                 file_name_stem = os.path.splitext(r_item['name'])[0]
-                                if file_name_stem.endswith(search_term_strip):
+                                if file_name_stem.endswith(search_term_strip): # 파일명 끝이 4자리 숫자인지 확인
                                     processed_results.append(r_item)
+                        # -----------------------------------------
                         else: # 전체 번호 검색 또는 기타 검색어
                             processed_results = all_gdrive_results # Google Drive 'contains' 결과 그대로 사용
-                    
+
                     if processed_results:
                         st.session_state.gdrive_search_results = processed_results
                         st.session_state.gdrive_file_options_map = {pr_item['name']: pr_item['id'] for pr_item in processed_results}
-                        if processed_results: 
+                        if processed_results:
                             st.session_state.gdrive_selected_filename = processed_results[0].get('name')
                             st.session_state.gdrive_selected_file_id = processed_results[0].get('id')
                         st.success(f"✅ {len(processed_results)}개 검색 완료.")
-                    else: 
+                    else:
                         st.warning("⚠️ 해당 파일 없음.")
-                else: 
+                else:
                     st.warning("⚠️ 검색어를 입력하세요.")
 
             if st.session_state.get('gdrive_search_results'):
@@ -116,26 +119,29 @@ def render_tab1():
                 if selected_filename_from_state in file_options_display:
                     try:
                         current_selection_index = file_options_display.index(selected_filename_from_state)
-                    except ValueError: 
+                    except ValueError:
                         current_selection_index = 0
-                
+
                 if not selected_filename_from_state and file_options_display: # 선택된 파일 없고, 옵션은 있을 때
                     st.session_state.gdrive_selected_filename = file_options_display[0]
                     st.session_state.gdrive_selected_file_id = st.session_state.gdrive_file_options_map.get(file_options_display[0])
                     current_selection_index = 0
-                
+
                 on_change_callback_gdrive = getattr(callbacks, 'update_selected_gdrive_id', None)
                 st.selectbox(
                     "불러올 JSON 파일 선택:", file_options_display,
                     index=current_selection_index, # 현재 선택된 인덱스 사용
-                    key="gdrive_selected_filename_widget_tab1", 
+                    key="gdrive_selected_filename_widget_tab1",
                     on_change=on_change_callback_gdrive if callable(on_change_callback_gdrive) else None
                 )
                 # 콜백 동기화 (selectbox on_change 이후에도 state 값이 즉시 반영되지 않는 경우 대비)
                 if callable(on_change_callback_gdrive) and \
                    st.session_state.get("gdrive_selected_filename_widget_tab1") != st.session_state.get('gdrive_selected_filename'):
-                    on_change_callback_gdrive()
-
+                    # update_selected_gdrive_id 콜백이 이미 on_change에 연결되어 있으므로,
+                    # 여기서 다시 호출하면 중복 실행될 수 있습니다.
+                    # selectbox 위젯의 on_change가 상태를 업데이트하도록 기다리는 것이 일반적입니다.
+                    # 만약 즉각적인 반영이 꼭 필요하다면, 콜백 로직을 검토하거나 다른 상태 관리 방법을 고려해야 할 수 있습니다.
+                    pass # 중복 호출 방지
 
             load_button_disabled = not bool(st.session_state.get('gdrive_selected_file_id'))
             if st.button("📂 선택 견적 불러오기", disabled=load_button_disabled, key="load_gdrive_btn_tab1"):
@@ -143,17 +149,19 @@ def render_tab1():
                 selected_filename_display = st.session_state.get('gdrive_selected_filename', '선택된 파일')
                 if json_file_id:
                     with st.spinner(f"🔄 '{selected_filename_display}' 로딩 중..."):
+                        # gdrive_utils.load_file 대신 google_drive_helper.load_json_file 사용
                         loaded_content = gdrive.load_json_file(json_file_id)
                     if loaded_content:
                         update_basket_callback_ref = getattr(callbacks, 'update_basket_quantities', lambda: None)
+                        # 로드된 데이터에 이미지 경로 리스트가 없거나 list 타입이 아니면 초기화
                         if 'uploaded_image_paths' not in loaded_content or \
                            not isinstance(loaded_content.get('uploaded_image_paths'), list):
                             loaded_content['uploaded_image_paths'] = []
                         load_success = load_state_from_data(loaded_content, update_basket_callback_ref)
                         if load_success:
-                            st.session_state.image_uploader_key_counter +=1
+                            st.session_state.image_uploader_key_counter +=1 # 이미지 업로더 키 초기화 (선택 사항)
                             st.success("✅ 견적 데이터 로딩 완료.")
-                            st.rerun()
+                            st.rerun() # UI 즉시 업데이트
                         else: st.error("❌ 저장된 데이터 형식 오류로 로딩 실패.")
                     else: st.error(f"❌ '{selected_filename_display}' 파일 로딩 또는 JSON 파싱 실패.")
                 else: st.warning("⚠️ 불러올 파일을 선택해주세요.")
@@ -162,6 +170,7 @@ def render_tab1():
             st.markdown("**현재 견적 저장**")
             with st.form(key="save_quote_form_tab1"):
                 raw_phone_for_display = st.session_state.get('customer_phone', '').strip()
+                # utils.sanitize_phone_number 사용하여 전화번호 정제
                 example_sanitized_phone = utils.sanitize_phone_number(raw_phone_for_display)
                 example_json_fname = f"{example_sanitized_phone}.json" if example_sanitized_phone else "전화번호입력후생성.json"
                 st.caption(f"JSON 파일명 예시: `{example_json_fname}` (같은 번호로 저장 시 덮어쓰기)")
@@ -169,22 +178,25 @@ def render_tab1():
                 submitted = st.form_submit_button("💾 Google Drive에 저장")
                 if submitted:
                     raw_customer_phone = st.session_state.get('customer_phone', '').strip()
+                    # utils.sanitize_phone_number 사용하여 전화번호 정제
                     sanitized_customer_phone = utils.sanitize_phone_number(raw_customer_phone)
-                    
-                    # 정규화된 전화번호로 세션 상태 업데이트 (매우 중요!)
-                    st.session_state.customer_phone = sanitized_customer_phone 
+
+                    # 정규화된 전화번호로 세션 상태 업데이트 (중요!)
+                    st.session_state.customer_phone = sanitized_customer_phone
 
                     if not sanitized_customer_phone or not sanitized_customer_phone.isdigit() or len(sanitized_customer_phone) < 9: # 국내 유효번호 최소길이 등 고려
                         st.error("⚠️ 저장 실패: 유효한 고객 전화번호를 입력해주세요 (예: 01012345678 또는 021234567).")
                     else:
                         json_filename = f"{sanitized_customer_phone}.json"
                         state_data_to_save = prepare_state_for_save() # st.session_state.customer_phone이 이미 정규화됨
-                        
+
+                        # 이미지 경로가 없거나 리스트가 아니면 빈 리스트로 초기화
                         if 'uploaded_image_paths' not in state_data_to_save or \
                            not isinstance(state_data_to_save.get('uploaded_image_paths'), list):
                              state_data_to_save['uploaded_image_paths'] = st.session_state.get('uploaded_image_paths', [])
                         try:
                             with st.spinner(f"🔄 '{json_filename}' 저장 중..."):
+                                # gdrive_utils.save_file 대신 google_drive_helper.save_json_file 사용
                                 save_json_result = gdrive.save_json_file(
                                     json_filename,
                                     state_data_to_save,
@@ -192,9 +204,13 @@ def render_tab1():
                                 )
                             if save_json_result and save_json_result.get('id'):
                                 st.success(f"✅ '{json_filename}' 저장 완료.")
+                                # 성공 후 검색 결과 업데이트 또는 초기화 (선택적)
+                                # st.session_state.gdrive_search_results = []
+                                # st.session_state.gdrive_file_options_map = {}
                             else: st.error(f"❌ '{json_filename}' 저장 실패.")
                         except Exception as save_err:
                             st.error(f"❌ '{json_filename}' 저장 중 예외 발생: {save_err}")
+                            traceback.print_exc() # 상세 오류 로깅
     st.divider()
 
     st.header("📝 고객 기본 정보")
@@ -223,10 +239,17 @@ def render_tab1():
         st.text_input("📍 출발지 주소", key="from_location")
         if st.session_state.get('apply_long_distance'):
             ld_options = data.long_distance_options if hasattr(data,'long_distance_options') else []
-            st.selectbox("🛣️ 장거리 구간 선택", ld_options, key="long_distance_selector")
+            # long_distance_selector 키가 state에 있는지 확인하고 없으면 기본값 설정
+            if 'long_distance_selector' not in st.session_state:
+                st.session_state.long_distance_selector = ld_options[0] if ld_options else None
+            current_ld_index = ld_options.index(st.session_state.long_distance_selector) if st.session_state.long_distance_selector in ld_options else 0
+            st.selectbox("🛣️ 장거리 구간 선택", ld_options, index=current_ld_index, key="long_distance_selector")
         st.text_input("🔼 출발지 층수", key="from_floor", placeholder="예: 3, B1, -1")
         method_options = data.METHOD_OPTIONS if hasattr(data,'METHOD_OPTIONS') else []
-        st.selectbox("🛠️ 출발지 작업 방법", method_options, key="from_method")
+        if 'from_method' not in st.session_state:
+            st.session_state.from_method = method_options[0] if method_options else None
+        current_from_method_index = method_options.index(st.session_state.from_method) if st.session_state.from_method in method_options else 0
+        st.selectbox("🛠️ 출발지 작업 방법", method_options, index=current_from_method_index, key="from_method")
         current_moving_date_val = st.session_state.get('moving_date')
         if not isinstance(current_moving_date_val, date):
              try: kst_def = pytz.timezone("Asia/Seoul"); default_date_def = datetime.now(kst_def).date()
@@ -239,7 +262,10 @@ def render_tab1():
         st.text_input("📍 도착지 주소", key="to_location")
         st.text_input("🔽 도착지 층수", key="to_floor", placeholder="예: 5, B2, -2")
         method_options_to = data.METHOD_OPTIONS if hasattr(data,'METHOD_OPTIONS') else []
-        st.selectbox("🛠️ 도착지 작업 방법", method_options_to, key="to_method")
+        if 'to_method' not in st.session_state:
+            st.session_state.to_method = method_options_to[0] if method_options_to else None
+        current_to_method_index = method_options_to.index(st.session_state.to_method) if st.session_state.to_method in method_options_to else 0
+        st.selectbox("🛠️ 도착지 작업 방법", method_options_to, index=current_to_method_index, key="to_method")
 
     with st.container(border=True):
         st.subheader("💳 결제 관련 옵션")
@@ -263,41 +289,56 @@ def render_tab1():
             newly_saved_paths_this_run = []
             # uploaded_image_paths가 없을 경우를 대비하여 get으로 안전하게 접근하고 기본값으로 빈 리스트 제공
             current_tracked_filenames = {os.path.basename(p) for p in st.session_state.get('uploaded_image_paths', [])}
-            
+
             # 이미지 파일명에 사용할 전화번호 (st.session_state.customer_phone은 저장 로직에서 이미 정규화됨)
-            img_phone_prefix = st.session_state.get('customer_phone', 'unknown_phone').strip() 
+            img_phone_prefix = st.session_state.get('customer_phone', 'unknown_phone').strip()
             if not img_phone_prefix: # 정규화 후에도 비어있다면 (또는 아예 입력이 없었다면)
                 img_phone_prefix = 'no_phone_img'
 
             for uploaded_file_obj in uploaded_files:
+                # 파일명 안전하게 처리 (영숫자, '.', '_' 외 문자 대체)
                 original_filename_sanitized = "".join(c if c.isalnum() or c in ['.', '_'] else '_' for c in uploaded_file_obj.name)
-                base_filename = f"{img_phone_prefix}_{original_filename_sanitized}" # img_phone_prefix는 숫자만 포함
+                # 파일명 중복 방지 로직 개선
+                name_part, ext_part = os.path.splitext(original_filename_sanitized)
+                base_filename = f"{img_phone_prefix}_{name_part}{ext_part}" # 확장자 포함하여 기본 이름 생성
+
                 counter = 1
                 filename_to_save = base_filename
                 prospective_save_path = os.path.join(UPLOAD_DIR, filename_to_save)
+                # 파일이 실제로 존재하는지 확인하여 이름 변경
                 while os.path.exists(prospective_save_path):
-                    name_part, ext_part = os.path.splitext(base_filename)
-                    filename_to_save = f"{name_part}_{counter}{ext_part}"
+                    # 중복 시 파일명(확장자 제외) + 카운터 + 확장자 형식으로 변경
+                    filename_to_save = f"{img_phone_prefix}_{name_part}_{counter}{ext_part}"
                     prospective_save_path = os.path.join(UPLOAD_DIR, filename_to_save)
                     counter += 1
+
                 final_save_path = prospective_save_path
                 final_filename_to_save = os.path.basename(final_save_path)
+
+                # 현재 실행에서 이미 저장된 경로가 아니고, 추적 목록에도 없는 경우 저장
                 if final_filename_to_save not in current_tracked_filenames and final_save_path not in newly_saved_paths_this_run :
                     try:
                         with open(final_save_path, "wb") as f: f.write(uploaded_file_obj.getbuffer())
-                        newly_saved_paths_this_run.append(final_save_path)
+                        newly_saved_paths_this_run.append(final_save_path) # 실제로 저장된 경로 추가
                         st.success(f"'{uploaded_file_obj.name}' 저장 완료: {final_filename_to_save}")
                     except Exception as e: st.error(f"'{uploaded_file_obj.name}' 저장 실패: {e}")
 
+            # 새로 저장된 파일이 있다면 상태 업데이트 및 UI 갱신
             if newly_saved_paths_this_run:
                 current_paths = st.session_state.get('uploaded_image_paths', []) # 안전하게 가져오기
                 current_paths.extend(newly_saved_paths_this_run)
+                # 중복 제거 및 정렬 후 상태 업데이트
                 st.session_state.uploaded_image_paths = sorted(list(set(current_paths)))
-                st.session_state.image_uploader_key_counter += 1
-                st.rerun()
-            elif uploaded_files and not newly_saved_paths_this_run: # 파일은 있었으나 새로 저장된게 없을 때
-                st.session_state.image_uploader_key_counter += 1 
-                st.rerun()
+                st.session_state.image_uploader_key_counter += 1 # 키 변경하여 파일 업로더 초기화
+                st.rerun() # UI 즉시 갱신
+            # 업로드 시도했지만 새로 저장된 파일이 없는 경우 (예: 중복 파일만 업로드)
+            elif uploaded_files and not newly_saved_paths_this_run:
+                 # 사용자에게 알림 (선택적)
+                 # st.info("새로 저장된 이미지가 없습니다. (중복된 파일일 수 있습니다)")
+                 # 키 변경하여 파일 업로더 초기화 (선택적)
+                 st.session_state.image_uploader_key_counter += 1
+                 st.rerun()
+
 
         current_image_paths = st.session_state.get('uploaded_image_paths', [])
         if current_image_paths:
@@ -307,23 +348,27 @@ def render_tab1():
                     if os.path.exists(image_path_to_delete): os.remove(image_path_to_delete); st.toast(f"삭제 성공: {os.path.basename(image_path_to_delete)}", icon="🗑️")
                     else: st.toast(f"파일 없음: {os.path.basename(image_path_to_delete)}", icon="⚠️")
                 except Exception as e_del: st.error(f"파일 삭제 오류 ({os.path.basename(image_path_to_delete)}): {e_del}")
-                
+
+                # 상태 업데이트: 삭제된 경로 제거
                 paths_after_delete = st.session_state.get('uploaded_image_paths', [])
                 if image_path_to_delete in paths_after_delete:
                     paths_after_delete.remove(image_path_to_delete)
-                    st.session_state.uploaded_image_paths = paths_after_delete # 갱신
-                st.session_state.image_uploader_key_counter += 1
-                st.rerun()
+                    st.session_state.uploaded_image_paths = paths_after_delete # 갱신된 리스트로 상태 업데이트
+                st.session_state.image_uploader_key_counter += 1 # 키 변경
+                st.rerun() # UI 즉시 갱신
 
-            paths_to_display_and_delete = list(current_image_paths) 
+            paths_to_display_and_delete = list(current_image_paths)
+            # 실제로 존재하는 파일 경로만 필터링하여 표시 (오류 방지)
             valid_display_paths = [p for p in paths_to_display_and_delete if isinstance(p, str) and os.path.exists(p)]
-            
-            if len(valid_display_paths) != len(paths_to_display_and_delete): # 유효하지 않은 경로 정리
+
+            # 상태 리스트와 실제 파일 리스트가 다르면 상태 동기화 및 리런
+            if len(valid_display_paths) != len(paths_to_display_and_delete):
                 st.session_state.uploaded_image_paths = valid_display_paths
-                if paths_to_display_and_delete: st.rerun() 
+                # 유효하지 않은 경로가 있었으면 상태 정리 후 리런
+                if paths_to_display_and_delete: st.rerun()
 
             if valid_display_paths:
-                cols_per_row_display = 3
+                cols_per_row_display = 3 # 한 줄에 표시할 이미지 수
                 for i in range(0, len(valid_display_paths), cols_per_row_display):
                     image_paths_in_row = valid_display_paths[i:i+cols_per_row_display]
                     cols_display = st.columns(cols_per_row_display)
@@ -331,18 +376,22 @@ def render_tab1():
                         with cols_display[col_idx]:
                             try:
                                 st.image(img_path_display, caption=os.path.basename(img_path_display), use_container_width=True)
+                                # 삭제 버튼 키 고유하게 생성 (경로 기반)
                                 delete_btn_key = f"del_btn_{img_path_display.replace('/', '_').replace('.', '_').replace(' ', '_')}_{i}_{col_idx}"
                                 if st.button(f"삭제", key=delete_btn_key, type="secondary", help=f"{os.path.basename(img_path_display)} 삭제하기"):
-                                    delete_image_action(img_path_display)
+                                    delete_image_action(img_path_display) # 삭제 함수 호출
                             except Exception as img_display_err:
                                 st.error(f"{os.path.basename(img_path_display)} 표시 오류: {img_display_err}")
             elif not current_image_paths : st.caption("업로드된 이미지가 없습니다.")
+            # 실제 파일은 없지만 상태에는 남아있는 경우 (예: 외부에서 삭제됨)
             elif paths_to_display_and_delete and not valid_display_paths: st.caption("표시할 유효한 이미지가 없습니다.")
     else:
         st.warning("이미지 업로드 디렉토리 설정 오류로 이미지 업로드 기능이 비활성화되었습니다.")
 
+
+    # 타임존 적용하여 현재 시간 표시
     kst_time_str = utils.get_current_kst_time_str() if hasattr(utils, 'get_current_kst_time_str') else ''
-    st.caption(f"⏱️ 견적 생성일: {kst_time_str}")
+    st.caption(f"⏱️ 견적 생성/수정 시간: {kst_time_str}")
     st.divider()
 
     if st.session_state.get('has_via_point'):
@@ -350,14 +399,20 @@ def render_tab1():
             st.subheader("↪️ 경유지 정보")
             st.text_input("📍 경유지 주소", key="via_point_location")
             method_options_via = data.METHOD_OPTIONS if hasattr(data,'METHOD_OPTIONS') else []
-            st.selectbox("🛠️ 경유지 작업 방법", method_options_via, key="via_point_method")
+            if 'via_point_method' not in st.session_state:
+                st.session_state.via_point_method = method_options_via[0] if method_options_via else None
+            current_via_method_index = method_options_via.index(st.session_state.via_point_method) if st.session_state.via_point_method in method_options_via else 0
+            st.selectbox("🛠️ 경유지 작업 방법", method_options_via, index=current_via_method_index, key="via_point_method")
         st.divider()
 
     if st.session_state.get('is_storage_move'):
         with st.container(border=True):
             st.subheader("📦 보관이사 추가 정보")
             storage_options = data.STORAGE_TYPE_OPTIONS if hasattr(data,'STORAGE_TYPE_OPTIONS') else []
-            st.radio("보관 유형 선택:", storage_options, key="storage_type", horizontal=True)
+            if 'storage_type' not in st.session_state:
+                st.session_state.storage_type = storage_options[0] if storage_options else None
+            current_storage_index = storage_options.index(st.session_state.storage_type) if st.session_state.storage_type in storage_options else 0
+            st.radio("보관 유형 선택:", storage_options, index=current_storage_index, key="storage_type", horizontal=True)
             st.checkbox("🔌 보관 중 전기사용", key="storage_use_electricity")
             min_arrival_date = st.session_state.get('moving_date', date.today())
             if not isinstance(min_arrival_date, date): min_arrival_date = date.today()
@@ -367,7 +422,7 @@ def render_tab1():
             st.date_input("🚚 도착 예정일 (보관 후)", key="arrival_date", min_value=min_arrival_date)
             moving_dt, arrival_dt = st.session_state.get('moving_date'), st.session_state.get('arrival_date')
             calculated_duration = max(1, (arrival_dt - moving_dt).days + 1) if isinstance(moving_dt,date) and isinstance(arrival_dt,date) and arrival_dt >= moving_dt else 1
-            st.session_state.storage_duration = calculated_duration
+            st.session_state.storage_duration = calculated_duration # 계산된 값으로 상태 업데이트
             st.markdown(f"**계산된 보관 기간:** **`{calculated_duration}`** 일")
         st.divider()
 
